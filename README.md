@@ -41,7 +41,7 @@ The test uses fake login and process data, so it does not require root, active
 login sessions, or a running Zabbix agent. Its example contains two online users:
 
 ```json
-{"users":[{"user":"alice","bytes":307200},{"user":"bob","bytes":51200}]}
+{"users":[{"uid":"1001","user":"alice","bytes":307200},{"uid":"1002","user":"bob","bytes":51200}]}
 ```
 
 Alice has two processes using 100 KiB and 200 KiB of RSS. The expected sum is
@@ -63,9 +63,10 @@ The collector and dependent items update every 30 seconds. The warning threshold
 is the template macro `{$USER.MEMORY.MAX}`. Its default is `4294967296` bytes
 (4 GiB). Override the macro on a host if that node needs a different policy.
 
-The collector uses usernames reported by `who` and `ps`. It does not call
-`getent`, read `/etc/passwd`, or apply a local UID policy. Only usernames with a
-current login session are included.
+The collector gets usernames and login-process IDs from `who -u`, then maps
+those processes to numeric UIDs using one numeric `ps` snapshot. It does not
+call `getent`, read `/etc/passwd`, or ask `ps` to resolve account names. Only
+users with a current login session are included.
 
 ## What the number means
 

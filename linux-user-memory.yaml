@@ -1,7 +1,7 @@
 zabbix_export:
   version: '7.0'
   template_groups:
-    - uuid: 3f19cdcc5d524651a438e44c81d874e4
+    - uuid: 846977d1dfed4968bc5f8bdb363285bc
       name: 'Templates/Operating systems'
   templates:
     - uuid: f1a01cff4a9a4c199b3311e5f7ca73ea
@@ -36,14 +36,14 @@ zabbix_export:
             - uuid: 27ab24a312cd4866b54f18f86c906df7
               name: 'User {#USER}: Memory usage'
               type: DEPENDENT
-              key: 'user.memory.rss["{#USER}"]'
+              key: 'user.memory.rss[{#UID}]'
               history: 7d
               trends: 90d
               units: B
               preprocessing:
                 - type: JSONPATH
                   parameters:
-                    - '$.users[?(@.user == "{#USER}")].bytes.first()'
+                    - '$.users[?(@.uid == "{#UID}")].bytes.first()'
                   error_handler: CUSTOM_VALUE
                   error_handler_params: '0'
               master_item:
@@ -55,7 +55,7 @@ zabbix_export:
                   value: '{#USER}'
               trigger_prototypes:
                 - uuid: bd5c180b8b2a432599469f74a0eb6026
-                  expression: 'last(/Linux per-user memory by Zabbix agent/user.memory.rss["{#USER}"])>{$USER.MEMORY.MAX}'
+                  expression: 'last(/Linux per-user memory by Zabbix agent/user.memory.rss[{#UID}])>{$USER.MEMORY.MAX}'
                   name: 'User {#USER}: High memory usage'
                   event_name: 'High memory usage by user {#USER} on {HOST.NAME}'
                   opdata: 'Current: {ITEM.LASTVALUE1}, limit: {$USER.MEMORY.MAX}'
@@ -65,6 +65,8 @@ zabbix_export:
           master_item:
             key: user.memory.get
           lld_macro_paths:
+            - lld_macro: '{#UID}'
+              path: $.uid
             - lld_macro: '{#USER}'
               path: $.user
           preprocessing:

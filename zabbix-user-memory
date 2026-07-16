@@ -35,50 +35,84 @@ json_escape() {
 }
 
 collect() {
-    local ps_output aggregated online_users username bytes
+    local who_output online_sessions login_pids ps_output aggregated
+    local record_type key value username login_pid uid bytes
     local first=1
     declare -A rss_bytes=()
+    declare -A login_pid_uids=()
+    declare -A seen_uids=()
 
     for dependency in who ps awk sort; do
         command_exists "$dependency" || die "required command not found: $dependency"
     done
 
-    # `who` reads the system login records. Duplicate usernames are removed so a
-    # user with several SSH/terminal sessions is reported only once.
-    online_users=$(LC_ALL=C who | awk 'NF > 0 { print $1 }' | sort -u)
+    # `who -u` includes the PID of each login process. The PID lets us associate
+    # the displayed login name with a numeric UID without querying passwd/NSS.
+    who_output=$(LC_ALL=C who -u) || die 'could not read login records'
+    online_sessions=$(awk '
+        NF >= 6 && $6 ~ /^[0-9]+$/ { print $1, $6 }
+    ' <<<"$who_output" | sort -u -k1,1 -k2,2n)
 
-    # RSS is reported by ps in KiB. Take one process snapshot, then sum every
-    # process by its displayed owner name. A wide USER column avoids truncating
-    # normal login names. No passwd or getent lookup is performed by this script.
-    ps_output=$(LC_ALL=C ps -e -o user:64= -o rss=) || die 'could not read the process table'
-    aggregated=$(awk '
-        NF >= 2 && $NF ~ /^[0-9]+$/ {
-            rss_kib[$1] += $2
-        }
-        END {
-            for (user in rss_kib) {
-                printf "%s %.0f\n", user, rss_kib[user] * 1024
+    if [[ -z $online_sessions ]]; then
+        [[ -z $who_output ]] || die 'login records did not contain process IDs'
+        printf '{"users":[]}\n'
+        return
+    fi
+
+    login_pids=$(awk '{ print $2 }' <<<"$online_sessions")
+    login_pids=${login_pids//$'\n'/,}
+
+    # Use numeric PID/UID fields so ps does not need to resolve account names.
+    # RSS is reported in KiB and converted to bytes after summing by UID.
+    ps_output=$(LC_ALL=C ps -e -o pid= -o uid= -o rss=) || die 'could not read the process table'
+    aggregated=$(awk -v login_pids="$login_pids" '
+        BEGIN {
+            count = split(login_pids, pids, ",")
+            for (i = 1; i <= count; i++) {
+                wanted_pid[pids[i]] = 1
             }
         }
-    ' <<<"$ps_output" | sort -k1,1)
+        $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {
+            rss_kib[$2] += $3
+            if ($1 in wanted_pid) {
+                printf "P %s %s\n", $1, $2
+            }
+        }
+        END {
+            for (uid in rss_kib) {
+                printf "U %s %.0f\n", uid, rss_kib[uid] * 1024
+            }
+        }
+    ' <<<"$ps_output")
 
-    while read -r username bytes; do
-        [[ -n ${username:-} ]] || continue
-        rss_bytes[$username]=$bytes
+    while read -r record_type key value; do
+        [[ -n ${record_type:-} ]] || continue
+        case $record_type in
+            P)
+                login_pid_uids[$key]=$value
+                ;;
+            U)
+                rss_bytes[$key]=$value
+                ;;
+        esac
     done <<<"$aggregated"
 
     printf '{"users":['
-    while read -r username; do
+    while read -r username login_pid; do
         [[ -n ${username:-} ]] || continue
-        bytes=${rss_bytes[$username]:-0}
+        uid=${login_pid_uids[$login_pid]:-}
+        [[ -n $uid ]] || continue
+        [[ -z ${seen_uids[$uid]+x} ]] || continue
+        seen_uids[$uid]=1
+        bytes=${rss_bytes[$uid]:-0}
 
         if (( first == 0 )); then
             printf ','
         fi
         first=0
-        printf '{"user":"%s","bytes":%s}' \
-            "$(json_escape "$username")" "$bytes"
-    done <<<"$online_users"
+        printf '{"uid":"%s","user":"%s","bytes":%s}' \
+            "$uid" "$(json_escape "$username")" "$bytes"
+    done <<<"$online_sessions"
     printf ']}\n'
 }
 
