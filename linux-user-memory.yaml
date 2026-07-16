@@ -1,0 +1,82 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 3f19cdcc5d524651a438e44c81d874e4
+      name: 'Templates/Operating systems'
+  templates:
+    - uuid: f1a01cff4a9a4c199b3311e5f7ca73ea
+      template: 'Linux per-user memory by Zabbix agent'
+      name: 'Linux per-user memory by Zabbix agent'
+      description: |
+        Discovers currently logged-in users and monitors the total
+        resident set size (RSS) of all processes owned by each one. Collection
+        is performed in one process-table snapshot by the user.memory.get key.
+        The collector is installed at /etc/zabbix/scripts/zabbix-user-memory.
+      groups:
+        - name: 'Templates/Operating systems'
+      items:
+        - uuid: e57c40fa5d644bbf8203b77ee8df1f12
+          name: 'Per-user memory: Raw data'
+          key: user.memory.get
+          delay: 30s
+          history: '0'
+          value_type: TEXT
+          description: 'JSON process-memory snapshot used by dependent discovery and item prototypes.'
+          tags:
+            - tag: component
+              value: memory
+      discovery_rules:
+        - uuid: 7290217757154dbea5a0c8fb4a496789
+          name: 'Online user discovery'
+          type: DEPENDENT
+          key: user.memory.discovery
+          lifetime: 1d
+          description: 'Discovers users with a current login session reported by who(1).'
+          item_prototypes:
+            - uuid: 27ab24a312cd4866b54f18f86c906df7
+              name: 'User {#USER}: Memory usage'
+              type: DEPENDENT
+              key: 'user.memory.rss["{#USER}"]'
+              history: 7d
+              trends: 90d
+              units: B
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - '$.users[?(@.user == "{#USER}")].bytes.first()'
+                  error_handler: CUSTOM_VALUE
+                  error_handler_params: '0'
+              master_item:
+                key: user.memory.get
+              tags:
+                - tag: component
+                  value: memory
+                - tag: user
+                  value: '{#USER}'
+              trigger_prototypes:
+                - uuid: bd5c180b8b2a432599469f74a0eb6026
+                  expression: 'last(/Linux per-user memory by Zabbix agent/user.memory.rss["{#USER}"])>{$USER.MEMORY.MAX}'
+                  name: 'User {#USER}: High memory usage'
+                  event_name: 'High memory usage by user {#USER} on {HOST.NAME}'
+                  opdata: 'Current: {ITEM.LASTVALUE1}, limit: {$USER.MEMORY.MAX}'
+                  priority: WARNING
+                  description: 'User {#USER} has exceeded the allowed memory limit. Review the user processes and stop or reschedule memory-intensive workloads if necessary.'
+                  manual_close: 'YES'
+          master_item:
+            key: user.memory.get
+          lld_macro_paths:
+            - lld_macro: '{#USER}'
+              path: $.user
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.users
+      macros:
+        - macro: '{$USER.MEMORY.MAX}'
+          value: '4294967296'
+          description: 'Maximum allowed RSS per user in bytes (default: 4 GiB).'
+      tags:
+        - tag: class
+          value: os
+        - tag: target
+          value: linux

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+
+# Report resident memory (RSS) for currently logged-in users to Zabbix.
+# Runtime dependencies: bash, who, ps, awk, and sort.
+
+set -o errexit
+set -o nounset
+set -o pipefail
+
+readonly PROGRAM_NAME="${0##*/}"
+
+die() {
+    printf '%s: %s\n' "$PROGRAM_NAME" "$*" >&2
+    exit 1
+}
+
+usage() {
+    printf 'Usage: %s collect\n' "$PROGRAM_NAME" >&2
+    exit 2
+}
+
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+json_escape() {
+    local value=$1
+
+    value=${value//\\/\\\\}
+    value=${value//\"/\\\"}
+    value=${value//$'\n'/\\n}
+    value=${value//$'\r'/\\r}
+    value=${value//$'\t'/\\t}
+    printf '%s' "$value"
+}
+
+collect() {
+    local ps_output aggregated online_users username bytes
+    local first=1
+    declare -A rss_bytes=()
+
+    for dependency in who ps awk sort; do
+        command_exists "$dependency" || die "required command not found: $dependency"
+    done
+
+    # `who` reads the system login records. Duplicate usernames are removed so a
+    # user with several SSH/terminal sessions is reported only once.
+    online_users=$(LC_ALL=C who | awk 'NF > 0 { print $1 }' | sort -u)
+
+    # RSS is reported by ps in KiB. Take one process snapshot, then sum every
+    # process by its displayed owner name. A wide USER column avoids truncating
+    # normal login names. No passwd or getent lookup is performed by this script.
+    ps_output=$(LC_ALL=C ps -e -o user:64= -o rss=) || die 'could not read the process table'
+    aggregated=$(awk '
+        NF >= 2 && $NF ~ /^[0-9]+$/ {
+            rss_kib[$1] += $2
+        }
+        END {
+            for (user in rss_kib) {
+                printf "%s %.0f\n", user, rss_kib[user] * 1024
+            }
+        }
+    ' <<<"$ps_output" | sort -k1,1)
+
+    while read -r username bytes; do
+        [[ -n ${username:-} ]] || continue
+        rss_bytes[$username]=$bytes
+    done <<<"$aggregated"
+
+    printf '{"users":['
+    while read -r username; do
+        [[ -n ${username:-} ]] || continue
+        bytes=${rss_bytes[$username]:-0}
+
+        if (( first == 0 )); then
+            printf ','
+        fi
+        first=0
+        printf '{"user":"%s","bytes":%s}' \
+            "$(json_escape "$username")" "$bytes"
+    done <<<"$online_users"
+    printf ']}\n'
+}
+
+[[ $# -eq 1 ]] || usage
+
+case $1 in
+    collect)
+        collect
+        ;;
+    *)
+        usage
+        ;;
+esac
