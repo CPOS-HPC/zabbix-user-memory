@@ -73,8 +73,8 @@ zabbix_export:
                 - $.users
       macros:
         - macro: '{$USER.MEMORY.MAX}'
-          value: '4294967296'
-          description: 'Maximum allowed RSS per user in bytes (default: 4 GiB).'
+          value: '5368709120'
+          description: 'Maximum allowed RSS per user in bytes (default: 5 GiB).'
       tags:
         - tag: class
           value: os

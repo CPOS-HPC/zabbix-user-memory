@@ -4,7 +4,7 @@
 
 This package monitors the total resident memory (RSS) used by each currently
 logged-in user on a Linux login node. A Zabbix warning is raised when a
-logged-in user's usage exceeds 4 GiB.
+logged-in user's usage exceeds 5 GiB.
 
 The collector reads the process table once per check and returns one JSON
 document. The online-user list comes from `who`; users without a current login
@@ -60,8 +60,8 @@ The template is exported in Zabbix 7.0 format and can be imported into Zabbix
 ## Configuration
 
 The collector and dependent items update every 30 seconds. The warning threshold
-is the template macro `{$USER.MEMORY.MAX}`. Its default is `4294967296` bytes
-(4 GiB). Override the macro on a host if that node needs a different policy.
+is the template macro `{$USER.MEMORY.MAX}`. Its default is `5368709120` bytes
+(5 GiB). Override the macro on a host if that node needs a different policy.
 
 The collector gets the online-user list from `who`, sums `ps -eo user=,rss=` by
 username, and emits values only for users currently online. It does not call
