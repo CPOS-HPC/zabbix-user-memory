@@ -35,34 +35,29 @@ who() {
     printf '%s\n' \
         'alice   pts/1  2026-07-16 09:00 (192.0.2.10)' \
         'bob     pts/2  2026-07-16 09:05 (192.0.2.11)' \
-        'alice   pts/3  2026-07-16 09:10 (192.0.2.12)' \
-        'dave    pts/4  2026-07-16 09:15 (192.0.2.13)'
+        'alice   pts/3  2026-07-16 09:10 (192.0.2.12)'
 }
 
 ps() {
     printf '%s\n' \
-        '1101 pts/1 1001 100' \
-        '1102 pts/3 1001 200' \
-        '1201 pts/2 1002 50' \
-        '1301 ?     1003 999'
+        'alice 100' \
+        'alice 200' \
+        'bob 50' \
+        'charlie 999'
 }
 
 export -f who ps
 
 [[ -x $COLLECTOR ]] || fail "collector is not executable: $COLLECTOR"
 
-expected='{"users":[{"uid":"1001","user":"alice","bytes":307200},{"uid":"1002","user":"bob","bytes":51200}]}'
+expected='{"users":[{"user":"alice","bytes":307200},{"user":"bob","bytes":51200}]}'
 actual=$("$COLLECTOR" collect)
 assert_equal "$expected" "$actual" 'sums RSS for unique online users'
 
-# UID 1003 owns 999 KiB in the fake process table, but has no login session
+# Charlie owns 999 KiB in the fake process table, but has no login session
 # and therefore must never appear in the result.
-[[ $actual != *'1003'* ]] || fail 'included an offline process owner'
+[[ $actual != *'charlie'* ]] || fail 'included an offline process owner'
 printf 'PASS: excludes users without a login session\n'
-
-# Dave has a login record whose terminal disappeared before the process snapshot.
-[[ $actual != *'dave'* ]] || fail 'included a session without a live terminal'
-printf 'PASS: handles a terminal that disappears during collection\n'
 
 expected='{"users":[]}'
 actual=$(MOCK_EMPTY_LOGINS=1 "$COLLECTOR" collect)

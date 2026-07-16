@@ -35,88 +35,55 @@ json_escape() {
 }
 
 collect() {
-    local who_output online_sessions session_ttys ps_output aggregated
-    local record_type key value username terminal uid bytes
+    local who_output online_users ps_output aggregated username bytes
     local first=1
     declare -A rss_bytes=()
-    declare -A terminal_uids=()
-    declare -A seen_uids=()
 
     for dependency in who ps awk sort; do
         command_exists "$dependency" || die "required command not found: $dependency"
     done
 
-    # Associate each displayed login name with its terminal; these are the two
-    # fields required from the system login records.
+    # Keep only users with a current login record. Multiple sessions belonging
+    # to the same user are collapsed into one entry.
     who_output=$(LC_ALL=C who) || die 'could not read login records'
-    online_sessions=$(awk '
-        NF >= 2 { print $1, $2 }
-    ' <<<"$who_output" | sort -u -k1,1 -k2,2)
+    online_users=$(awk 'NF >= 1 { print $1 }' <<<"$who_output" | sort -u)
 
-    if [[ -z $online_sessions ]]; then
+    if [[ -z $online_users ]]; then
         printf '{"users":[]}\n'
         return
     fi
 
-    session_ttys=$(awk '{ print $2 }' <<<"$online_sessions")
-    session_ttys=${session_ttys//$'\n'/,}
-
-    # Use numeric PID/UID fields so ps does not need to resolve account names.
-    # The oldest process attached to each login terminal identifies its UID.
-    # RSS is reported in KiB and converted to bytes after summing by UID.
-    ps_output=$(LC_ALL=C ps -e -o pid= -o tty= -o uid= -o rss=) || die 'could not read the process table'
-    aggregated=$(awk -v session_ttys="$session_ttys" '
-        BEGIN {
-            count = split(session_ttys, terminals, ",")
-            for (i = 1; i <= count; i++) {
-                wanted_terminal[terminals[i]] = 1
-            }
-        }
-        $1 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ {
-            rss_kib[$3] += $4
-            if ($2 in wanted_terminal && (!( $2 in terminal_pid) || $1 < terminal_pid[$2])) {
-                terminal_pid[$2] = $1
-                terminal_uid[$2] = $3
-            }
+    # Sum the RSS column exactly once per process owner. ps reports RSS in KiB;
+    # the JSON value is converted to bytes for Zabbix.
+    ps_output=$(LC_ALL=C ps -eo user=,rss=) || die 'could not read the process table'
+    aggregated=$(awk '
+        $1 != "" && $2 ~ /^[0-9]+$/ {
+            rss_kib[$1] += $2
         }
         END {
-            for (terminal in terminal_uid) {
-                printf "T %s %s\n", terminal, terminal_uid[terminal]
-            }
-            for (uid in rss_kib) {
-                printf "U %s %.0f\n", uid, rss_kib[uid] * 1024
+            for (user in rss_kib) {
+                printf "%s %.0f\n", user, rss_kib[user] * 1024
             }
         }
-    ' <<<"$ps_output")
+    ' <<<"$ps_output" | sort -k1,1)
 
-    while read -r record_type key value; do
-        [[ -n ${record_type:-} ]] || continue
-        case $record_type in
-            T)
-                terminal_uids[$key]=$value
-                ;;
-            U)
-                rss_bytes[$key]=$value
-                ;;
-        esac
+    while read -r username bytes; do
+        [[ -n ${username:-} ]] || continue
+        rss_bytes[$username]=$bytes
     done <<<"$aggregated"
 
     printf '{"users":['
-    while read -r username terminal; do
+    while read -r username; do
         [[ -n ${username:-} ]] || continue
-        uid=${terminal_uids[$terminal]:-}
-        [[ -n $uid ]] || continue
-        [[ -z ${seen_uids[$uid]+x} ]] || continue
-        seen_uids[$uid]=1
-        bytes=${rss_bytes[$uid]:-0}
+        bytes=${rss_bytes[$username]:-0}
 
         if (( first == 0 )); then
             printf ','
         fi
         first=0
-        printf '{"uid":"%s","user":"%s","bytes":%s}' \
-            "$uid" "$(json_escape "$username")" "$bytes"
-    done <<<"$online_sessions"
+        printf '{"user":"%s","bytes":%s}' \
+            "$(json_escape "$username")" "$bytes"
+    done <<<"$online_users"
     printf ']}\n'
 }
 
