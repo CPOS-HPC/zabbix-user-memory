@@ -63,10 +63,10 @@ The collector and dependent items update every 30 seconds. The warning threshold
 is the template macro `{$USER.MEMORY.MAX}`. Its default is `4294967296` bytes
 (4 GiB). Override the macro on a host if that node needs a different policy.
 
-The collector gets usernames and login-process IDs from `who -u`, then maps
-those processes to numeric UIDs using one numeric `ps` snapshot. It does not
-call `getent`, read `/etc/passwd`, or ask `ps` to resolve account names. Only
-users with a current login session are included.
+The collector gets usernames and terminals from `who`, then maps each terminal
+to a numeric UID using one numeric `ps` snapshot. It does not call `getent`, read
+`/etc/passwd`, or ask `ps` to resolve account names. Only users with a current
+login session are included.
 
 ## What the number means
 
