@@ -3,8 +3,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 This package monitors the total resident memory (RSS) used by every visible
-process owner on a Linux login node. A Zabbix warning is raised when a user's
-usage exceeds 5 GiB.
+non-system process owner (UID 1000 or greater) on a Linux login node. A Zabbix
+warning is raised when a user's usage exceeds 5 GiB.
 
 The collector reads the process table once per check and returns one JSON
 document. Background, batch, and detached jobs are included even when their
@@ -37,15 +37,17 @@ Run the self-contained test before installation:
 ```
 
 The test uses fake process data, so it does not require root, active login
-sessions, or a running Zabbix agent. Its example contains four process owners:
+sessions, or a running Zabbix agent. Its example contains five process owners:
 
 ```json
-{"users":[{"user":"alice","bytes":307200},{"user":"bob","bytes":51200},{"user":"charlie","bytes":1022976},{"user":"polly_hung","bytes":10240}]}
+{"users":[{"user":"alice","bytes":307200},{"user":"bob","bytes":51200},{"user":"boundary","bytes":1024},{"user":"charlie","bytes":1022976},{"user":"polly_hung","bytes":10240}]}
 ```
 
 Alice has two processes using 100 KiB and 200 KiB of RSS. The expected sum is
-307200 bytes. Charlie represents an owner without a login session, and
-`polly_hung` verifies that long usernames are not truncated.
+307200 bytes. `boundary` verifies that UID 1000 is included, Charlie represents
+an owner without a login session, and `polly_hung` verifies that long usernames
+are not truncated. Fake root and system-account processes below UID 1000 are
+excluded.
 
 ## Import and link the template
 
@@ -63,9 +65,9 @@ is the template macro `{$USER.MEMORY.MAX}`. Its default is `5368709120` bytes
 (5 GiB). Override the macro on a host if that node needs a different policy.
 
 The collector sums `ps -eo uid=,user:256=,rss=` by numeric UID and emits every
-visible process owner. The wide username column avoids the default `ps`
-abbreviation of long account names. It does not call `getent` or read
-`/etc/passwd` directly.
+visible process owner whose UID is 1000 or greater. The wide username column
+avoids the default `ps` abbreviation of long account names. It does not call
+`getent` or read `/etc/passwd` directly.
 
 ## What the number means
 

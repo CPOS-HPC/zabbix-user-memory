@@ -8,11 +8,11 @@ zabbix_export:
       template: 'Linux per-user memory by Zabbix agent'
       name: 'Linux per-user memory by Zabbix agent'
       description: |
-        Discovers every visible process owner and monitors the total resident
-        set size (RSS) of all processes owned by each one, including background
-        and detached jobs. Collection is performed in one process-table snapshot
-        by the user.memory.get key. The collector is installed at
-        /etc/zabbix/scripts/zabbix-user-memory.
+        Discovers every visible process owner with UID 1000 or greater and
+        monitors the total resident set size (RSS) of all processes owned by
+        each one, including background and detached jobs. Collection is
+        performed in one process-table snapshot by the user.memory.get key. The
+        collector is installed at /etc/zabbix/scripts/zabbix-user-memory.
       groups:
         - name: 'Templates/Operating systems'
       items:
@@ -32,7 +32,7 @@ zabbix_export:
           type: DEPENDENT
           key: user.memory.discovery
           lifetime: 1d
-          description: 'Discovers every user that owns a process visible to the Zabbix agent.'
+          description: 'Discovers every UID 1000 or greater that owns a process visible to the Zabbix agent.'
           item_prototypes:
             - uuid: 27ab24a312cd4866b54f18f86c906df7
               name: 'User {#USER}: Memory usage'
