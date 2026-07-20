@@ -25,43 +25,40 @@ assert_equal() {
     printf 'PASS: %s\n' "$test_name"
 }
 
-# These functions replace the system commands only inside collector processes
-# started by this test. No real login or process data is read.
-who() {
-    if [[ ${MOCK_EMPTY_LOGINS:-0} == 1 ]]; then
+# This function replaces ps only inside collector processes started by this
+# test. No real process data is read.
+ps() {
+    if [[ ${MOCK_EMPTY_PROCESSES:-0} == 1 ]]; then
         return 0
     fi
 
+    [[ $* == '-eo uid=,user:256=,rss=' ]] || {
+        printf 'unexpected ps arguments: %s\n' "$*" >&2
+        return 64
+    }
+
     printf '%s\n' \
-        'alice   pts/1  2026-07-16 09:00 (192.0.2.10)' \
-        'bob     pts/2  2026-07-16 09:05 (192.0.2.11)' \
-        'alice   pts/3  2026-07-16 09:10 (192.0.2.12)'
+        '1001 alice 100' \
+        '1001 alice 200' \
+        '1002 bob 50' \
+        '1003 charlie 999' \
+        '1004 polly_hung 10'
 }
 
-ps() {
-    printf '%s\n' \
-        'alice 100' \
-        'alice 200' \
-        'bob 50' \
-        'charlie 999'
-}
-
-export -f who ps
+export -f ps
 
 [[ -x $COLLECTOR ]] || fail "collector is not executable: $COLLECTOR"
 
-expected='{"users":[{"user":"alice","bytes":307200},{"user":"bob","bytes":51200}]}'
+expected='{"users":[{"user":"alice","bytes":307200},{"user":"bob","bytes":51200},{"user":"charlie","bytes":1022976},{"user":"polly_hung","bytes":10240}]}'
 actual=$("$COLLECTOR" collect)
-assert_equal "$expected" "$actual" 'sums RSS for unique online users'
+assert_equal "$expected" "$actual" 'sums RSS for every process owner'
 
-# Charlie owns 999 KiB in the fake process table, but has no login session
-# and therefore must never appear in the result.
-[[ $actual != *'charlie'* ]] || fail 'included an offline process owner'
-printf 'PASS: excludes users without a login session\n'
+[[ $actual == *'polly_hung'* ]] || fail 'did not preserve a long username'
+printf 'PASS: preserves long usernames\n'
 
 expected='{"users":[]}'
-actual=$(MOCK_EMPTY_LOGINS=1 "$COLLECTOR" collect)
-assert_equal "$expected" "$actual" 'returns an empty array when nobody is online'
+actual=$(MOCK_EMPTY_PROCESSES=1 "$COLLECTOR" collect)
+assert_equal "$expected" "$actual" 'returns an empty array for an empty process table'
 
 set +o errexit
 error_output=$("$COLLECTOR" invalid-command 2>&1)

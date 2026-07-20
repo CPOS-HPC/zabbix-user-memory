@@ -2,15 +2,14 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-This package monitors the total resident memory (RSS) used by each currently
-logged-in user on a Linux login node. A Zabbix warning is raised when a
-logged-in user's usage exceeds 5 GiB.
+This package monitors the total resident memory (RSS) used by every visible
+process owner on a Linux login node. A Zabbix warning is raised when a user's
+usage exceeds 5 GiB.
 
 The collector reads the process table once per check and returns one JSON
-document. The online-user list comes from `who`; users without a current login
-session are not collected, even if they still own background processes. The
-template uses dependent discovery and dependent items, so it does not run `ps`
-once for every user.
+document. Background, batch, and detached jobs are included even when their
+owners have no current login session. The template uses dependent discovery and
+dependent items, so it does not run `ps` once for every user.
 
 ## Install on the monitored node
 
@@ -37,16 +36,16 @@ Run the self-contained test before installation:
 ./test.sh
 ```
 
-The test uses fake login and process data, so it does not require root, active
-login sessions, or a running Zabbix agent. Its example contains two online users:
+The test uses fake process data, so it does not require root, active login
+sessions, or a running Zabbix agent. Its example contains four process owners:
 
 ```json
-{"users":[{"user":"alice","bytes":307200},{"user":"bob","bytes":51200}]}
+{"users":[{"user":"alice","bytes":307200},{"user":"bob","bytes":51200},{"user":"charlie","bytes":1022976},{"user":"polly_hung","bytes":10240}]}
 ```
 
 Alice has two processes using 100 KiB and 200 KiB of RSS. The expected sum is
-307200 bytes. The fake process table also includes Charlie, but that user is
-offline and is therefore excluded.
+307200 bytes. Charlie represents an owner without a login session, and
+`polly_hung` verifies that long usernames are not truncated.
 
 ## Import and link the template
 
@@ -63,9 +62,10 @@ The collector and dependent items update every 30 seconds. The warning threshold
 is the template macro `{$USER.MEMORY.MAX}`. Its default is `5368709120` bytes
 (5 GiB). Override the macro on a host if that node needs a different policy.
 
-The collector gets the online-user list from `who`, sums `ps -eo user=,rss=` by
-username, and emits values only for users currently online. It does not call
-`getent` or read `/etc/passwd` directly.
+The collector sums `ps -eo uid=,user:256=,rss=` by numeric UID and emits every
+visible process owner. The wide username column avoids the default `ps`
+abbreviation of long account names. It does not call `getent` or read
+`/etc/passwd` directly.
 
 ## What the number means
 

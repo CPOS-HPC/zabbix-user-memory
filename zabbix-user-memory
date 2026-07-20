@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Report resident memory (RSS) for currently logged-in users to Zabbix.
-# Runtime dependencies: bash, who, ps, awk, and sort.
+# Report resident memory (RSS) for all visible process owners to Zabbix.
+# Runtime dependencies: bash, ps, awk, and sort.
 
 set -o errexit
 set -o nounset
@@ -35,47 +35,32 @@ json_escape() {
 }
 
 collect() {
-    local who_output online_users ps_output aggregated username bytes
+    local ps_output aggregated username uid bytes
     local first=1
-    declare -A rss_bytes=()
 
-    for dependency in who ps awk sort; do
+    for dependency in ps awk sort; do
         command_exists "$dependency" || die "required command not found: $dependency"
     done
 
-    # Keep only users with a current login record. Multiple sessions belonging
-    # to the same user are collapsed into one entry.
-    who_output=$(LC_ALL=C who) || die 'could not read login records'
-    online_users=$(awk 'NF >= 1 { print $1 }' <<<"$who_output" | sort -u)
-
-    if [[ -z $online_users ]]; then
-        printf '{"users":[]}\n'
-        return
-    fi
-
-    # Sum the RSS column exactly once per process owner. ps reports RSS in KiB;
-    # the JSON value is converted to bytes for Zabbix.
-    ps_output=$(LC_ALL=C ps -eo user=,rss=) || die 'could not read the process table'
+    # Aggregate by numeric UID so display-width truncation cannot split or lose
+    # an account. The wide USER field preserves long names for the JSON label.
+    # ps reports RSS in KiB; convert the total to bytes for Zabbix.
+    ps_output=$(LC_ALL=C ps -eo uid=,user:256=,rss=) || die 'could not read the process table'
     aggregated=$(awk '
-        $1 != "" && $2 ~ /^[0-9]+$/ {
-            rss_kib[$1] += $2
+        $1 ~ /^[0-9]+$/ && $2 != "" && $3 ~ /^[0-9]+$/ {
+            username[$1] = $2
+            rss_kib[$1] += $3
         }
         END {
-            for (user in rss_kib) {
-                printf "%s %.0f\n", user, rss_kib[user] * 1024
+            for (uid in rss_kib) {
+                printf "%s %s %.0f\n", username[uid], uid, rss_kib[uid] * 1024
             }
         }
-    ' <<<"$ps_output" | sort -k1,1)
-
-    while read -r username bytes; do
-        [[ -n ${username:-} ]] || continue
-        rss_bytes[$username]=$bytes
-    done <<<"$aggregated"
+    ' <<<"$ps_output" | sort -k1,1 -k2,2n)
 
     printf '{"users":['
-    while read -r username; do
+    while read -r username uid bytes; do
         [[ -n ${username:-} ]] || continue
-        bytes=${rss_bytes[$username]:-0}
 
         if (( first == 0 )); then
             printf ','
@@ -83,7 +68,7 @@ collect() {
         first=0
         printf '{"user":"%s","bytes":%s}' \
             "$(json_escape "$username")" "$bytes"
-    done <<<"$online_users"
+    done <<<"$aggregated"
     printf ']}\n'
 }
 
